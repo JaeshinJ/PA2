@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <limits.h>
+#include <fcntl.h>
 
 #include <vector>
 #include <string>
@@ -98,14 +99,14 @@ int main () {
             continue;
         }
 
-        vector<string>& args = tknr.commands.at(0)->args;
         // handle built-in "cd" command
-        if (args.at(0) == "cd") {
+        if (tknr.commands.at(0)->args.at(0) == "cd") {
             if(tknr.commands.size() > 1){
                 cerr << "Error: 'cd' command cannot be used in a pipeline" << endl;
                 continue;
             }
 
+            vector<string>& args = tknr.commands.at(0)->args;
             string targetPath;
             char oldCwd[PATH_MAX];
             string currentDir;
@@ -218,7 +219,8 @@ int main () {
 
                 if(currCmd->hasOutput()){
                     int fdOut = open(currCmd->out_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                    int(fdOut < 0){
+
+                    if(fdOut < 0){
                         perror("open output file error");
                         exit(1);
                     }
@@ -228,7 +230,7 @@ int main () {
                     }
                     close(fdOut);
                 } else if (!isLast) {
-                    if(dup2(pipeFD[1], STDOUT_FILENO) < 0){
+                    if(dup2(pipeFd[1], STDOUT_FILENO) < 0){
                         perror("dup2 pipeFd[1] error");
                         exit(1);
                     }
@@ -241,14 +243,15 @@ int main () {
                 }
 
                 // run single commands with no arguments
+                vector<string>& currArgs = currCmd->args;
                 vector<char*> cArgs;
-                for (auto& s : args) {
+                for (auto& s : currArgs) {
                     cArgs.push_back((char*)(s.c_str()));
                 }
                 cArgs.push_back(nullptr);
 
-                if (execvp(args[0], args) < 0) {  // error check
-                    perror("execvp");
+                if (execvp(cArgs[0], cArgs.data()) < 0) {  // error check
+                    perror(cArgs[0]);
                     exit(2);
                 }
 
@@ -269,33 +272,26 @@ int main () {
                 }
             }
         }
-        if(lastPid > 0){ // 하나 이상의 프로세스가 실행되었다면    
+        if(lastPid > 0){ 
             bool isBackground = tknr.commands.back()->isBackground();
                 
             if (isBackground) {
-                // 백그라운드 작업: 생성된 모든 PID를 백그라운드 목록에 추가
                 cerr << "[" << background_pids.size() + 1 << "] ";
-                for(pid_t p : pipeline_pids){
+                for(pid_t p : pipePids){
                     background_pids.push_back(p);
                     cerr << p << " ";
                 }
                 cerr << endl;
             } else {
-                // 포그라운드 작업: 마지막 자식이 끝날 때까지 대기
                 int status = 0;
                 waitpid(lastPid, &status, 0);
-
-                // 파이프라인의 나머지 자식들도 정리 (좀비 방지)
-                // WNOHANG을 사용하거나, 기다려도 됨.
-                // 여기서는 WNOHANG을 사용하여 즉시 정리 시도
-                for(pid_t p : pipeline_pids){
+                for(pid_t p : pipePids){
                     if(p != lastPid){
                         waitpid(p, NULL, WNOHANG); 
                     }
                 }
 
                 if(WIFEXITED(status) && WEXITSTATUS(status) > 1){
-                    // WEXITSTATUS > 1은 보통 execvp 실패 (위에서 exit(2) 사용)
                     cerr << "Command failed or not found." << endl;
                 }
             }
