@@ -2,6 +2,7 @@
 
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <limits.h>
 
@@ -98,9 +99,13 @@ int main () {
         }
 
         vector<string>& args = tknr.commands.at(0)->args;
-
         // handle built-in "cd" command
         if (args.at(0) == "cd") {
+            if(tknr.commands.size() > 1){
+                cerr << "Error: 'cd' command cannot be used in a pipeline" << endl;
+                continue;
+            }
+
             string targetPath;
             char oldCwd[PATH_MAX];
             string currentDir;
@@ -125,7 +130,7 @@ int main () {
                     targetPath = homeDir;
                 }
             }
-            else if (tknr.commands.at(0)->args.at(1) == "-") {// change to previous directory if argument is "-"
+            else if (args.at(1) == "-") {// change to previous directory if argument is "-"
                 if (previousDir == "") {
                     cerr << "cd: previousDir not set" << endl;
                     continue;
@@ -141,11 +146,12 @@ int main () {
 
             if (chdir(targetPath.c_str()) != 0) {  // error check
                 perror("cd : chdir error");
-                continue;
             }
             else {  // update previousDir if cd was successful
                 previousDir = currentDir;
-                cerr << "cd: changed directory to " << targetPath << endl;
+                if(args.size() >= 2 && args.at(1) == "-"){
+                    cerr << targetPath << endl; // 'cd -' print changed dir
+                }
             }
             continue;
         }
@@ -156,60 +162,153 @@ int main () {
             perror("dup origStdin error");
             continue;
         }
+        int origStdout = dup(STDOUT_FILENO);
+        if(origStdout == -1){
+            perror("dup origStdout error");
+            close(origStdin); // close backuped stdin
+            continue;
+        }
+
 
         int numCommands = tknr.commands.size();
+        int pipeInFd = STDIN_FILENO;
         pid_t lastPid = -1; // to hold PID of last command for waiting later
-        int pipeInFd = STDIN_FILENO;  // initial input is from stdin
+        vector<pid_t> pipePids;
 
         // set up pipes for multiple commands
         for(int i = 0; i < numCommands; i++){
             Command* currCmd = tknr.commands.at(i);
             bool isLast = (i == numCommands - 1);
 
-            int pipeFd[6]; 
-
+            // pideFD : [0] = read, [1] = write
+            int pipeFd[2]; 
             if(!isLast){
                 if(pipe(pipeFd) == -1){
-                    perror("pipe error");
+                    perror("create pipe error");
                     break;
                 }
             }
-        }
 
-        // fork to create child
-        pid_t pid = fork();
-        if (pid < 0) {  // error check
-            perror("fork");
-            exit(2);
-        }
-
-        if (pid == 0) {  // if child, exec to run command
-            // run single commands with no arguments
-            vector<string>& args = tknr.commands.at(0)->args;
-            vector<char*> cArgs;
-            for (auto& s : args) {
-                cArgs.push_back((char*)(s.c_str()));
+            pid_t pid = fork();
+            if (pid < 0) {  // error check
+                perror("fork error");
+                break; // fork fail
             }
 
-            if (execvp(args[0], args) < 0) {  // error check
-                perror("execvp");
-                exit(2);
-            }
-        }
-        else {  // if parent,
-            Command* currCmd = tknr.commands.at(0);
-            if (currCmd->isBackground()) {  // if background process, do not wait
-                background_pids.push_back(pid);
-                cerr << "[" << pid << "] Running in background." << endl;
-            }
-            else {  // wait for foreground process to finish
-                int status = 0;
-                waitpid(pid, &status, 0);
-                if(status > 1){ 
-                    cerr << "Process exited with status: " << status << endl;
-                    exit(status);
+            // fork to create child
+            if (pid == 0) {  // if child, exec to run command
+                if(currCmd->hasInput()){
+                    int fdIn = open(currCmd->in_file.c_str(), O_RDONLY);
+                    if(fdIn < 0){
+                        perror("open input file error");
+                        exit(1);
+                    }
+                    if(dup2(fdIn, STDIN_FILENO) < 0){
+                        perror("dup2 input error");
+                        exit(1);
+                    }
+                    close(fdIn);
+                } else if(pipeInFd != STDIN_FILENO){
+                    if(dup2(pipeInFd, STDIN_FILENO) < 0)
+                    {
+                        perror("dup2 stdin error");
+                        exit(1);
+                    }
+                }
+
+                if(currCmd->hasOutput()){
+                    int fdOut = open(currCmd->out_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    int(fdOut < 0){
+                        perror("open output file error");
+                        exit(1);
+                    }
+                    if(dup2(fdOut, STDOUT_FILENO) < 0){
+                        perror("dup2 output error");
+                        exit(1);
+                    }
+                    close(fdOut);
+                } else if (!isLast) {
+                    if(dup2(pipeFD[1], STDOUT_FILENO) < 0){
+                        perror("dup2 pipeFd[1] error");
+                        exit(1);
+                    }
+                }
+
+                // child must close both end of pipe
+                if(!isLast){
+                    close(pipeFd[0]);
+                    close(pipeFd[1]);
+                }
+
+                // run single commands with no arguments
+                vector<char*> cArgs;
+                for (auto& s : args) {
+                    cArgs.push_back((char*)(s.c_str()));
+                }
+                cArgs.push_back(nullptr);
+
+                if (execvp(args[0], args) < 0) {  // error check
+                    perror("execvp");
+                    exit(2);
+                }
+
+                exit(0);
+            } else {  // if parent,
+                pipePids.push_back(pid);
+                if(isLast){
+                    lastPid = pid;
+                }
+
+                if(pipeInFd != STDIN_FILENO){
+                    close(pipeInFd);
+                }
+
+                if(!isLast){
+                    close(pipeFd[1]);
+                    pipeInFd = pipeFd[0];
                 }
             }
         }
+        if(lastPid > 0){ // 하나 이상의 프로세스가 실행되었다면    
+            bool isBackground = tknr.commands.back()->isBackground();
+                
+            if (isBackground) {
+                // 백그라운드 작업: 생성된 모든 PID를 백그라운드 목록에 추가
+                cerr << "[" << background_pids.size() + 1 << "] ";
+                for(pid_t p : pipeline_pids){
+                    background_pids.push_back(p);
+                    cerr << p << " ";
+                }
+                cerr << endl;
+            } else {
+                // 포그라운드 작업: 마지막 자식이 끝날 때까지 대기
+                int status = 0;
+                waitpid(lastPid, &status, 0);
+
+                // 파이프라인의 나머지 자식들도 정리 (좀비 방지)
+                // WNOHANG을 사용하거나, 기다려도 됨.
+                // 여기서는 WNOHANG을 사용하여 즉시 정리 시도
+                for(pid_t p : pipeline_pids){
+                    if(p != lastPid){
+                        waitpid(p, NULL, WNOHANG); 
+                    }
+                }
+
+                if(WIFEXITED(status) && WEXITSTATUS(status) > 1){
+                    // WEXITSTATUS > 1은 보통 execvp 실패 (위에서 exit(2) 사용)
+                    cerr << "Command failed or not found." << endl;
+                }
+            }
+        }
+            
+        // 셸의 표준 입출력을 원래대로 복원
+        if (dup2(origStdin, STDIN_FILENO) < 0) {
+            perror("dup2 restore stdin error");
+        }
+        if (dup2(origStdout, STDOUT_FILENO) < 0) {
+            perror("dup2 restore stdout error");
+        }
+        close(origStdin);
+        close(origStdout);
     }
 }
