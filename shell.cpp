@@ -1,49 +1,45 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <unistd.h> // fork, execvp, pipe, dup2, close, chdir, getcwd
-#include <sys/wait.h> // waitpid
-#include <sys/types.h> // pid_t
-#include <sys/stat.h> // S_IRUSR, S_IWUSR, etc. for open
-#include <fcntl.h> // open, O_RDONLY, O_WRONLY, etc.
-#include <limits.h> // PATH_MAX
-#include <time.h> // time, ctime
-#include <errno.h> // errno
-#include <cstdlib> // getenv, exit
-#include <algorithm> // distance
+#include <unistd.h> 
+#include <sys/wait.h> 
+#include <sys/types.h>
+#include <sys/stat.h> 
+#include <fcntl.h> 
+#include <limits.h> 
+#include <time.h> 
+#include <errno.h>
+#include <cstdlib> 
+#include <algorithm> 
 
 #include "Tokenizer.h"
 
-// Color definitions
 #define RED     "\033[1;31m"
 #define GREEN	"\033[1;32m"
 #define YELLOW  "\033[1;33m"
 #define BLUE	"\033[1;34m"
 #define WHITE	"\033[1;37m"
-#define NC      "\033[0m" // No Color
+#define NC      "\033[0m" 
 
 using namespace std;
 
-string previousDir = "";  // For "cd -"
-vector<pid_t> background_pids; // For reaping background processes
+string previousDir = "";  
+vector<pid_t> background_pids; 
 
-// Helper function to convert vector<string> to vector<char*> for execvp
-vector<char*> prepare_exec_args(vector<string>& args) {
+vector<char*> prepareExecArgs(vector<string>& args) {
     vector<char*> cArgs;
     for (auto& s : args) {
         cArgs.push_back((char*)(s.c_str()));
     }
-    cArgs.push_back(nullptr); // execvp requires a NULL-terminated array
+    cArgs.push_back(nullptr); 
     return cArgs;
 }
 
 int main () {
-    // Get initial previousDir from PWD environment variable if available
     const char* initial_pwd = getenv("PWD");
     if (initial_pwd != nullptr) {
         previousDir = string(initial_pwd);
     } else {
-        // Fallback if PWD is not set, try getcwd
         char cwd[PATH_MAX];
         if (getcwd(cwd, sizeof(cwd)) != NULL) {
              previousDir = string(cwd);
@@ -73,21 +69,28 @@ int main () {
         char cwd[PATH_MAX];
         string currentPath = (getcwd(cwd, sizeof(cwd)) != NULL) ? string(cwd) : "getcwd_error";
 
-        const char* user = getenv("USER");
-        string username = (user != nullptr) ? string(user) : "unknown";
-
+        // user name
+        const char* user_env = getenv("USER");
+        string username = (user_env != nullptr && string(user_env) != "unknown") ? string(user_env) : "root";
+        
+        // time
         time_t rawtime;
-        time(&rawtime);
-        string timeStr = string(ctime(&rawtime));
-        if (!timeStr.empty() && timeStr.back() == '\n') {
-            timeStr.pop_back(); 
-        }
+        struct tm * timeinfo;
+        char time_buffer [80];
 
+        time (&rawtime);
+        timeinfo = localtime (&rawtime);
+
+        strftime (time_buffer, sizeof(time_buffer), "%b %d %H:%M:%S", timeinfo);
+        string timeStr(time_buffer);
+
+        // final prompt
         cout << GREEN << timeStr << " "
              << username << ":"
              << currentPath << NC
              << YELLOW << "$ " << NC << flush; 
 
+             
         // Input
         string input;
         if (!getline(cin, input)) { 
@@ -234,7 +237,7 @@ int main () {
                     close(pipeFd[1]);
                 }
                 
-                vector<char*> cArgs = prepare_exec_args(currCmd->args);
+                vector<char*> cArgs = prepareExecArgs(currCmd->args);
 
 
                 // Execute command
