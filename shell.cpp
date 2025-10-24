@@ -52,25 +52,24 @@ int main () {
 
 
     for (;;) {
-        // Reap completed background processes non-blockingly
+        // Reap completed background
         for (auto it = background_pids.begin(); it != background_pids.end();) {
             int status;
             pid_t result = waitpid(*it, &status, WNOHANG);
-            if (result == 0) { // Still running
+            if (result == 0) { 
                 ++it;
-            } else if (result == -1) { // Error (or already reaped)
-                if (errno != ECHILD) { // Ignore "No child processes" error
-                    perror("waitpid error reaping background process"); // 오류 메시지 좀 더 명확하게
+            } else if (result == -1) { 
+                if (errno != ECHILD) { 
+                    perror("waitpid error reaping background process"); 
                 }
-                it = background_pids.erase(it); // Remove from list regardless
-            } else { // Completed
-                // 백그라운드 완료 메시지 개선 (프롬프트 덮어쓰기 방지 위해 \n 추가)
+                it = background_pids.erase(it); 
+            } else { 
                 cerr << GREEN << "\n[" << (distance(background_pids.begin(), it) + 1) << "] Done: " << *it << NC << endl;
                 it = background_pids.erase(it);
             }
         }
 
-        // --- Print Prompt ---
+        // Print Prompt
         char cwd[PATH_MAX];
         string currentPath = (getcwd(cwd, sizeof(cwd)) != NULL) ? string(cwd) : "getcwd_error";
 
@@ -81,30 +80,29 @@ int main () {
         time(&rawtime);
         string timeStr = string(ctime(&rawtime));
         if (!timeStr.empty() && timeStr.back() == '\n') {
-            timeStr.pop_back(); // Remove trailing newline from ctime
+            timeStr.pop_back(); 
         }
 
         cout << GREEN << timeStr << " "
              << username << ":"
              << currentPath << NC
-             << YELLOW << "$ " << NC << flush; // Use flush to ensure prompt appears immediately
+             << YELLOW << "$ " << NC << flush; 
 
-        // --- Read Input ---
+        // Input
         string input;
-        if (!getline(cin, input)) { // Check for getline failure (e.g., EOF)
+        if (!getline(cin, input)) { 
             if (cin.eof()) {
-                cout << endl; // Print newline after Ctrl+D
-                input = "exit"; // Treat EOF as exit command
+                cout << endl; 
+                input = "exit";
             } else {
                  perror("getline error");
-                 continue; // Try again on non-EOF error
+                 continue; 
             }
         }
 
         // Exit command
         if (input == "exit") {
             cout << RED << "Now exiting shell..." << endl << "Goodbye" << NC << endl;
-            // Optionally, kill remaining background processes before exiting?
             break;
         }
 
@@ -113,21 +111,18 @@ int main () {
             continue;
         }
 
-        // --- Tokenize Input ---
+        // Tokenizer
         Tokenizer tknr(input);
         if (tknr.hasError() || tknr.commands.empty()) {
-            continue; // Skip if tokenizer failed or produced no commands
+            continue; 
         }
 
 
-        // --- Handle Built-in 'cd' ---
-        // 'cd' must run in the parent process and cannot be part of a pipeline
         if (tknr.commands.at(0)->args.at(0) == "cd") {
             if (tknr.commands.size() > 1) {
                 cerr << "Error: 'cd' command cannot be used in a pipeline." << endl;
                 continue;
             }
-             // Check if 'cd' itself is marked as background (e.g., 'cd .. &') - doesn't make sense
             if (tknr.commands.at(0)->isBackground()){
                  cerr << "Error: 'cd' command cannot run in background." << endl;
                  continue;
@@ -136,33 +131,31 @@ int main () {
             vector<string>& args = tknr.commands.at(0)->args;
             string targetPath;
             char oldCwd[PATH_MAX];
-             // Store current directory *before* changing
             string currentDir = (getcwd(oldCwd, sizeof(oldCwd)) != NULL) ? string(oldCwd) : "";
 
-            if (args.size() < 2) { // cd to HOME
+            if (args.size() < 2) { 
                 const char* homeDir = getenv("HOME");
                 if (homeDir == NULL) {
                     cerr << "cd: HOME not set" << endl;
                     continue;
                 }
                 targetPath = homeDir;
-            } else if (args.at(1) == "-") { // cd to previous directory
-                if (previousDir.empty()) { // Check if previousDir was ever set
-                    cerr << "cd: OLDPWD not set" << endl; // bash 오류 메시지와 유사하게 변경
+            } else if (args.at(1) == "-") {
+                if (previousDir.empty()) { 
+                    cerr << "cd: OLDPWD not set" << endl; 
                     continue;
                 }
                 targetPath = previousDir;
-            } else { // cd to specified path
+            } else { 
                 targetPath = args.at(1);
             }
 
             if (chdir(targetPath.c_str()) != 0) {
-                perror(("cd: " + targetPath).c_str()); // More informative error
-            } else { // Success
-                 if (!currentDir.empty()) { // Only update previousDir if getcwd worked before chdir
+                perror(("cd: " + targetPath).c_str()); 
+            } else { 
+                 if (!currentDir.empty()) { 
                      previousDir = currentDir;
                  }
-                 // Print new directory only for 'cd -'
                 if (args.size() >= 2 && args.at(1) == "-") {
                     char finalCwd[PATH_MAX];
                      if (getcwd(finalCwd, sizeof(finalCwd)) != NULL) {
@@ -172,10 +165,9 @@ int main () {
                      }
                 }
             }
-            continue; // Finished 'cd', continue to next prompt
+            continue; 
         }
 
-        // --- Execute External Commands (Pipeline) ---
 
         // Backup standard I/O file descriptors
         int origStdin = dup(STDIN_FILENO);
@@ -184,16 +176,16 @@ int main () {
         if (origStdout == -1) { perror("dup origStdout error"); close(origStdin); continue; }
 
         int numCommands = tknr.commands.size();
-        int pipeInFd = STDIN_FILENO; // Input for the *next* command in the pipe
-        pid_t lastPid = -1; // PID of the last command in the pipeline
-        vector<pid_t> pipePids; // PIDs of all children in this pipeline
+        int pipeInFd = STDIN_FILENO; 
+        pid_t lastPid = -1; 
+        vector<pid_t> pipePids; 
         bool pipeline_setup_error = false;
 
         for (int i = 0; i < numCommands; ++i) {
             Command* currCmd = tknr.commands.at(i);
             bool isLastCommandInPipeline = (i == numCommands - 1);
 
-            // Create pipe for communication between this child and the next (if not last)
+            // Create pipe 
             int pipeFd[2] = {-1, -1};
             if (!isLastCommandInPipeline) {
                 if (pipe(pipeFd) == -1) {
@@ -204,18 +196,16 @@ int main () {
             }
 
             pid_t pid = fork();
-            if (pid < 0) { // Fork failed
+            if (pid < 0) { 
                 perror("fork error");
                 if (!isLastCommandInPipeline) { close(pipeFd[0]); close(pipeFd[1]); } // Close pipe fds on error
                 pipeline_setup_error = true;
                 break;
             }
 
-            // --- Child Process ---
+            // Child
             if (pid == 0) {
-                // Redirect Input (< file or pipeInFd)
                 if (currCmd->hasInput()) {
-                    // Input redirection is only allowed for the first command per PA description
                     if (i != 0) {
                          cerr << "Error: Input redirection ('<') only allowed for the first command in a pipeline." << endl;
                          exit(EXIT_FAILURE);
@@ -224,15 +214,12 @@ int main () {
                     if (fdIn < 0) { perror(("open input error: " + currCmd->in_file).c_str()); exit(EXIT_FAILURE); }
                     if (dup2(fdIn, STDIN_FILENO) < 0) { perror("dup2 input error"); exit(EXIT_FAILURE); }
                     close(fdIn);
-                } else if (pipeInFd != STDIN_FILENO) { // Input comes from previous pipe
+                } else if (pipeInFd != STDIN_FILENO) {
                     if (dup2(pipeInFd, STDIN_FILENO) < 0) { perror("dup2 pipe input error"); exit(EXIT_FAILURE); }
-                    close(pipeInFd); // Close the read end we just duplicated
+                    close(pipeInFd);
                 }
-                // (else: use original STDIN_FILENO for the first command if no '<')
 
-                // Redirect Output (> file or pipeFd[1])
                 if (currCmd->hasOutput()) {
-                    // Output redirection is only allowed for the last command per PA description
                     if (!isLastCommandInPipeline) {
                          cerr << "Error: Output redirection ('>') only allowed for the last command in a pipeline." << endl;
                          exit(EXIT_FAILURE);
@@ -241,16 +228,13 @@ int main () {
                     if (fdOut < 0) { perror(("open output error: " + currCmd->out_file).c_str()); exit(EXIT_FAILURE); }
                     if (dup2(fdOut, STDOUT_FILENO) < 0) { perror("dup2 output error"); exit(EXIT_FAILURE); }
                     close(fdOut);
-                } else if (!isLastCommandInPipeline) { // Output goes to next pipe
+                } else if (!isLastCommandInPipeline) { 
                     if (dup2(pipeFd[1], STDOUT_FILENO) < 0) { perror("dup2 pipe output error"); exit(EXIT_FAILURE); }
-                    // Child doesn't need pipe FDs after dup2
                     close(pipeFd[0]);
                     close(pipeFd[1]);
                 }
-                // (else: use original STDOUT_FILENO for the last command if no '>')
-
-                 // Prepare arguments for execvp - *** Important: Use CURRENT command's args ***
-                 vector<char*> cArgs = prepare_exec_args(currCmd->args);
+                
+                vector<char*> cArgs = prepare_exec_args(currCmd->args);
 
 
                 // Execute command
@@ -258,9 +242,9 @@ int main () {
 
                 // execvp only returns on error
                 perror(cArgs[0]);
-                exit(EXIT_FAILURE); // Use EXIT_FAILURE for execvp errors (more conventional than 2 or 127 sometimes)
+                exit(EXIT_FAILURE); 
             }
-            // --- Parent Process ---
+            // Parent
             else {
                 pipePids.push_back(pid);
                 if (isLastCommandInPipeline) {
@@ -278,9 +262,7 @@ int main () {
                     pipeInFd = pipeFd[0];
                 }
             }
-        } // End of pipeline for loop
-
-        // --- Wait for Pipeline Completion (or handle background) ---
+        } 
 
         // Clean up last pipe's read end if setup failed mid-way
         if (pipeline_setup_error && pipeInFd != STDIN_FILENO) {
@@ -289,12 +271,10 @@ int main () {
         // Reap any children created before the error
         for(pid_t p : pipePids){
             if (pipeline_setup_error) waitpid(p, NULL, WNOHANG); // Non-blocking attempt
-            // else: wait logic handled below
         }
 
 
         if (!pipeline_setup_error && lastPid > 0) { // Only wait if pipeline setup succeeded and commands ran
-            // Check if the *last* command object indicates background
             bool runInBackground = tknr.commands.back()->isBackground();
 
             if (runInBackground) {
@@ -306,40 +286,34 @@ int main () {
                 }
                 cerr << endl;
             } else {
-                // Wait for the *last* command to finish
                 int status = 0;
                  pid_t waited_pid = waitpid(lastPid, &status, 0);
-                 if (waited_pid < 0 && errno != ECHILD) { // Handle waitpid error (ignore ECHILD)
+                 if (waited_pid < 0 && errno != ECHILD) { 
                       perror("waitpid error waiting for foreground pipeline");
                  }
 
-
-                // Optionally check status for errors (child already printed perror)
                  if (WIFSIGNALED(status)) {
                     cerr << "Command terminated by signal " << WTERMSIG(status) << endl;
                  }
 
 
-                // Reap other children in the pipeline (they should be finished or finishing)
+                // Reap other children in the pipeline 
                 for(pid_t p : pipePids){
                     if(p != lastPid){
-                        // Use blocking wait here? Or non-blocking?
-                        // Non-blocking is safer if a preceding command hangs, but might leave zombies temporarily.
-                        // Let's stick to non-blocking for reaping intermediate children.
                         waitpid(p, NULL, WNOHANG);
                     }
                 }
             }
         }
 
-        // --- Restore Standard I/O ---
+        // Restore Standard I/O
         // Restore even if there were errors to ensure shell continues cleanly
         if (dup2(origStdin, STDIN_FILENO) < 0) { perror("dup2 restore stdin error"); }
         if (dup2(origStdout, STDOUT_FILENO) < 0) { perror("dup2 restore stdout error"); }
         close(origStdin);
         close(origStdout);
 
-    } // End of main shell loop (for (;;))
+    } 
 
-    return 0; // Should only be reached if 'exit' command breaks the loop
+    return 0; 
 }
