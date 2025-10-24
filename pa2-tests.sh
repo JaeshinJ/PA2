@@ -1,58 +1,28 @@
 #!/usr/bin/env bash
-# ============================================================
-# PA2 Aggie Shell — Rubric-Aligned Tests with Explanations
-# ============================================================
 
-# === Debug utility ===
-debug_files() {
-  echo -e "\n${YELLOW}--- DEBUG FILES ---${NC}"
-  ls -l
-  echo ""
-  for f in a b test.txt output.txt hidden.txt; do
-    if [[ -f "$f" ]]; then
-      echo "Contents of $f:"
-      head -n 10 "$f"
-      echo ""
-    fi
-  done
-  echo -e "${YELLOW}--------------------${NC}\n"
+# function to clean up files and make executables
+remake () {
+    #echo -e "\nCleaning old files and making executables"
+    make -s clean
+    make -s >/dev/null 2>&1
 }
-
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
 
 SCORE=0
-MAX_SCORE=75 # hidden tests worth 25 pts in gradescope
+MAX_SCORE=75
 
-remake() { make clean >/dev/null 2>&1; make -s >/dev/null 2>&1; }
-
-print_result() {
-  local passed=$1
-  local reason=$2
-  local pts=$3
-  local expected="$4"
-  local actual="$5"
-
-  if [ $passed -eq 0 ]; then
-    echo -e "  ${RED}Failed${NC}: $reason"
-    if [ -n "$expected" ]; then
-      echo -e "    ${YELLOW}Expected:${NC} $expected"
-    fi
-    if [ -n "$actual" ]; then
-      echo -e "    ${YELLOW}Actual:${NC}   $actual"
-    fi
-  else
-    echo -e "  ${GREEN}Passed${NC}: $reason"
-    if [ -n "$actual" ]; then
-      echo -e "    ${YELLOW}Output:${NC} $actual"
-    fi
-    SCORE=$((SCORE+pts))
-  fi
-  echo "Current SCORE: ${SCORE}/${MAX_SCORE}"
-  echo ""
-}
+echo -e "To remove colour from tests, set COLOUR to 1 in sh file\n"
+COLOUR=0
+if [[ COLOUR -eq 0 ]]; then
+    ORANGE='\033[0;33m'
+    GREEN='\033[0;32m'
+    RED='\033[0;31m'
+    NC='\033[0m'
+else
+    ORANGE='\033[0m'
+    GREEN='\033[0m'
+    RED='\033[0m'
+    NC='\033[0m'
+fi
 
 
 echo -e "${YELLOW}Starting Aggie Shell rubric-aligned tests (with diagnostics)...${NC}\n"
@@ -62,160 +32,144 @@ remake
 # 1. Echo (5 pts)
 # ============================================================
 echo "[Test 1] echo"
-OUTPUT=$(./shell <<< 'echo "Hello world | Life is Good > Great $" && exit' 2>&1)
-EXPECTED="Hello world | Life is Good > Great $"
-
-if echo "$OUTPUT" | grep -qF "$EXPECTED"; then
-  print_result 1 "echo output contains the expected text" 5 "$EXPECTED" "$OUTPUT"
+echo -e "\nTesting :: echo \"Hello world | Life is Good > Great $\"\n"
+cat ./test-files/test_echo_double.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_echo_double.txt)
+if ./shell < ./test-files/cmd.txt 2>/dev/null | grep -qF -- "${RES}"; then
+    echo -e "  ${GREEN}Test One Passed${NC}"
+    SCORE=$((SCORE + 5))
 else
-  print_result 0 "Expected output text missing or formatted incorrectly" 0 "$EXPECTED" "$OUTPUT"
+    echo -e "  ${RED}Failed${NC}"
 fi
-
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 2. Simple Commands (10 pts)
 # ============================================================
 echo "[Test 2] simple commands with arguments"
-./shell <<< "ls && ls -l /usr/bin && ls -la && ps aux && exit" >/tmp/test2.log 2>&1
-if grep -q "bash" /tmp/test2.log && grep -q "root" /tmp/test2.log; then
-  print_result 1 "executed external commands successfully" 10
+echo -e "\nTesting :: ls\n"
+cat ./test-files/test_ls.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_ls.txt)
+if ./shell < ./test-files/cmd.txt 2>/dev/null | grep -qF -- "${RES}"; then
+    echo -e "  ${GREEN}Test Two Passed${NC}"
 else
-  tail -n 5 /tmp/test2.log
-  print_result 0 "one or more basic commands failed to execute" 0
+    echo -e "  ${RED}Failed${NC}"
 fi
-rm -f /tmp/test2.log
+
+
+echo -e "\nTesting :: ls -l /usr/bin\n"
+cat ./test-files/test_ls_l_usr_bin.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_ls_l_usr_bin.txt)
+if ./shell < ./test-files/cmd.txt 2>/dev/null | grep -qF -- "${RES}"; then
+    echo -e "  ${GREEN}Test Three Passed${NC}"
+else
+    echo -e "  ${RED}Failed${NC}"
+fi
+
+echo -e "\nTesting :: ls -l -a\n"
+cat ./test-files/test_ls_l_a.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_ls_l_a.txt)
+if ./shell < ./test-files/cmd.txt 2>/dev/null | grep -qF -- "${RES}"; then
+    echo -e "  ${GREEN}Test Four Passed${NC}"
+else
+    echo -e "  ${RED}Failed${NC}"
+fi
+
+echo -e "\nTesting :: ps aux\n"
+cat ./test-files/test_ps_aux.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_ps_aux.txt)
+if ./shell < ./test-files/cmd.txt 2>/dev/null | grep -qF -- "${RES}"; then
+    echo -e "  ${GREEN}Test Five Passed${NC}"
+    SCORE=$((SCORE + 10))
+else
+    echo -e "  ${RED}Failed${NC}"
+fi
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 3. Input/Output Redirection (15 pts)
 # ============================================================
 echo "[Test 3] input/output redirection"
-./shell <<< "ps aux > a && grep init < a && grep init < a > b && exit" >/dev/null 2>&1
-if [[ ! -f a ]]; then
-  print_result 0 "file 'a' was not created with output redirection" 0
-elif [[ ! -s a ]]; then
-  print_result 0 "file 'a' exists but is empty" 0
-elif [[ ! -f b ]]; then
-  print_result 0 "file 'b' was not created during combined redirection" 0
-elif grep -q "dumb-init" b; then
-  print_result 1 "successfully redirected input/output for ps aux and grep dumb-init" 15
-else
-  print_result 0 "file 'b' exists but missing expected 'dumb-init' output" 0
-fi
+echo -e "\nTesting :: ps aux > a; grep /init < a; grep /init < a > b\n"
+cat ./test-files/test_input_output_redirection.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_input_output_redirection.txt)
 rm -f a b
+./shell < ./test-files/cmd.txt >temp 2>/dev/null
+if grep -qF -- "${RES}" temp; then
+    if [ -f a ] && [ -f b ] && grep -qF -- "${RES}" b; then
+        echo -e "  ${GREEN}Test Six Passed${NC}"
+        SCORE=$((SCORE + 15))
+    else
+        echo -e "  ${RED}Failed file creation${NC}"
+    fi
+else
+    echo -e "  ${RED}Failed final output${NC}"
+fi
+rm temp
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 4. Single Pipe (8 pts)
 # ============================================================
 echo "[Test 4] single pipe"
-OUTPUT=$(./shell <<< "ls -l | grep shell && exit" 2>&1)
-if echo "$OUTPUT" | grep -q "shell"; then
-  print_result 1 "pipe between ls and grep worked correctly" 8
+echo -e "\nTesting :: ls -l | grep \"shell.cpp\"\n"
+cat ./test-files/test_single_pipe.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_single_pipe.txt)
+NOTRES=$(ls -l | grep "Tokenizer.cpp")
+strace -e trace=execve -f -o out.trace ./shell < ./test-files/cmd.txt >temp 2>/dev/null
+LS=$(which ls)
+GREP=$(which grep)
+if grep -q "execve(\"${LS}\"" out.trace && grep -q "execve(\"${GREP}\"" out.trace && grep -qF -- "${RES}" temp && ! grep -qFw -- "${NOTRES}" temp; then
+    echo -e "  ${GREEN}Test Seven Passed${NC}"
+    SCORE=$((SCORE + 8))
 else
-  print_result 0 "failed to transfer ls output into grep through pipe" 0
+    echo -e "  ${RED}Failed${NC}"
 fi
+rm temp
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 5. Multiple Pipes (6 pts)
 # ============================================================
 echo "[Test 5] multiple pipes"
-./shell <<< "ps aux | awk '/usr/{print \$1}' | sort -r | head -n 1 && exit" >/tmp/test5.log 2>&1
-if [ $? -eq 0 ] && [[ -s /tmp/test5.log ]]; then
-  print_result 1 "executed multi-pipe chain successfully" 6
+echo -e "\nTesting :: ps aux | awk ""'""/usr/{print \$1}""'"" | sort -r\n"
+cat ./test-files/test_multiple_pipes_A.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_multiple_pipes_A.txt)
+ARR=($RES)
+echo "${RES}" >cnt.txt
+CNT=$(grep -oF -- "${ARR[0]}" cnt.txt | wc -l)
+strace -e trace=execve -f -o out.trace ./shell < ./test-files/cmd.txt >temp 2>/dev/null
+PS=$(which ps)
+AWK=$(which awk)
+SORT=$(which sort)
+if grep -q "execve(\"${PS}\"" out.trace && grep -q "execve(\"${AWK}\"" out.trace && grep -q "execve(\"${SORT}\"" out.trace && grep -qF -- "${RES}" temp && [ $(grep -oFw -- "${ARR[0]}" temp | wc -l) -le $((${CNT}+3)) ]; then
+    echo -e "  ${GREEN}Test Eight Passed${NC}"
+    SCORE=$((SCORE + 6))
 else
-  tail -n 3 /tmp/test5.log
-  print_result 0 "multi-pipe chain did not produce output or exited with error" 0
+    echo -e "  ${RED}Failed${NC}"
 fi
-rm -f /tmp/test5.log
-
+rm cnt.txt temp
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 6. Multiple Pipes + I/O Redirection (15 pts)
 # ============================================================
-# ============================================================
-# 6. Multiple Pipes + I/O Redirection (15 pts)
-# ============================================================
-echo "[Test 6] multiple pipes + I/O redirection"
+echo -e "\nTesting :: Multiple Pipes & Redirection\n"
+cat ./test-files/test_multiple_pipes_redirection.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+RES=$(. ./test-files/test_multiple_pipes_redirection.txt)
+echo "${RES}" >cnt.txt
+CNT=$(grep -oF -- "${RES}" cnt.txt | wc -l)
 
-{
-  # ---- Step 1 ----
-  CMD1="ps aux > test.txt && exit"
-  # echo ">>> Running: $CMD1"
-  ./shell <<< "$CMD1" 2>&1 | head -n 10
-  if [[ ! -s test.txt ]]; then
-    print_result 0 "Step 1 failed — test.txt not created or empty" 0 "$CMD1" ""
-    debug_files
-    return 0 2>/dev/null || exit 0
-  else
-    echo "✅ test.txt created successfully"
-  fi
+COUNT=$(./shell < ./test-files/cmd.txt 2>/dev/null | grep -oF -- "${RES}" | wc -l)
 
-  # ---- Step 2 ----
-  # Use cut instead of awk to avoid quoting issues
-  CMD2="cut -d' ' -f1,11 test.txt > tmp1.txt && exit"
-  # echo ">>> Running: $CMD2"
-  ./shell <<< "$CMD2" 2>&1 | head -n 10
-  if [[ ! -s tmp1.txt ]]; then
-    print_result 0 "Step 2 failed — cut output missing" 0 "$CMD2" ""
-    debug_files
-    return 0 2>/dev/null || exit 0
-  else
-    echo "✅ cut step successful"
-  fi
-
-  # ---- Step 3 ----
-  CMD3="head -10 < tmp1.txt > tmp2.txt && exit"
-  # echo ">>> Running: $CMD3"
-  ./shell <<< "$CMD3" 2>&1 | head -n 10
-  if [[ ! -s tmp2.txt ]]; then
-    print_result 0 "Step 3 failed — head output missing" 0 "$CMD3" ""
-    debug_files
-    return 0 2>/dev/null || exit 0
-  else
-    echo "✅ head step successful"
-  fi
-
-  # ---- Step 4 ----
-  CMD4="tr a-z A-Z < tmp2.txt > tmp3.txt && exit"
-  # echo ">>> Running: $CMD4"
-  ./shell <<< "$CMD4" 2>&1 | head -n 10
-  if [[ ! -s tmp3.txt ]]; then
-    print_result 0 "Step 4 failed — tr output missing" 0 "$CMD4" ""
-    debug_files
-    return 0 2>/dev/null || exit 0
-  else
-    echo "✅ tr step successful"
-  fi
-
-  # ---- Step 5 ----
-  CMD5="sort < tmp3.txt > output.txt && exit"
-  # echo ">>> Running: $CMD5"
-  ./shell <<< "$CMD5" 2>&1 | head -n 10
-  if [[ ! -s output.txt ]]; then
-    print_result 0 "Step 5 failed — sort output missing" 0 "$CMD5" ""
-    debug_files
-    return 0 2>/dev/null || exit 0
-  else
-    echo "✅ sort step successful"
-  fi
-
-  # ---- Step 6 ----
-  CMD6="cat output.txt && exit"
-  # echo ">>> Running: $CMD6"
-  OUTPUT=$(./shell <<< "$CMD6" 2>&1)
-  echo ">>> Output (first 15 lines):"
-  echo "$OUTPUT" | head -n 15
-  echo "--------------------------------------------"
-
-  if [[ -s test.txt && -s output.txt ]]; then
-    print_result 1 "All stages passed (I/O redirection + multi-step pipeline works)" 15 "All intermediate commands succeeded" "$OUTPUT"
-  else
-    print_result 0 "Some stage failed — see logs above" 0 "Expected non-empty test.txt/output.txt" "$OUTPUT"
-  fi
-
-  rm -f test.txt tmp1.txt tmp2.txt tmp3.txt output.txt
-}
-
-
+if { [ $COUNT -eq $CNT ] || [ $COUNT -eq $((CNT - 1)) ] || [ $COUNT -eq $((CNT + 1)) ]; } && [ -f test.txt ] && [ -f output.txt ]; then
+    echo -e "  ${GREEN}Test Nine Passed${NC}"
+    SCORE=$((SCORE + 15))
+else
+    echo -e "  ${RED}Failed${NC}"
+fi
+rm -f cnt.txt test.txt output.txt
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 7. Background Processes (5 pts)
@@ -225,23 +179,42 @@ START=$(date +%s)
 ./shell <<< "sleep 3 &; sleep 2; exit" >/dev/null 2>&1
 END=$(date +%s)
 if (( END - START < 3 )); then
-  print_result 1 "background process did not block the shell" 5
+    echo -e "${GREEN}background process did not block the shell${NC}"
+    SCORE=$((SCORE + 5))
 else
-  print_result 0 "sleep command blocked instead of running in background" 0
+  echo -e "${RED}sleep command blocked instead of running in background${NC}"
 fi
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 8. Directory Processing (6 pts)
 # ============================================================
-echo "[Test 8] cd command"
-TMPDIR=$(pwd)
-OUT=$(./shell <<< "cd ../../ && pwd && cd - && exit" 2>/dev/null)
-if echo "$OUT" | grep -q "$TMPDIR"; then
-  print_result 1 "cd and cd - worked as expected" 6
+remake
+echo -e "\nTesting :: cd ../../\n"
+cat ./test-files/test_cd_A.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+DIR=$(. ./test-files/test_cd_A.txt)
+./shell < ./test-files/cmd.txt >temp 2>/dev/null
+if [ $(grep -oF -- "${DIR}" temp | wc -l) -ge 3 ] && [ $(grep -oF -- "${DIR}/" temp | wc -l) -le 1 ]; then
+    echo -e "  ${GREEN}Test Ten Passed${NC}"
 else
-  echo "$OUT"
-  print_result 0 "failed to navigate directories correctly" 0
+    echo -e "  ${RED}Failed${NC}"
 fi
+rm temp
+
+remake
+echo -e "\nTesting :: cd -\n"
+cat ./test-files/test_cd_B.txt ./test-files/test_exit.txt > ./test-files/cmd.txt
+TEMPDIR=$(cd /home && pwd)
+DIR=$(. ./test-files/test_cd_B.txt | head -n 1)
+./shell < ./test-files/cmd.txt >temp 2>/dev/null
+if [ $(grep -oF -- "${DIR}" temp | wc -l) -ge 3 ] && ( [ $(grep -oF -- "${TEMPDIR}" temp | wc -l) -le 1 ] || ( grep -qF -- "${TEMPDIR}/" <<< "$DIR" && [ $(grep -oF -- "${TEMPDIR}" temp | wc -l) -gt $(grep -oF -- "${DIR}" temp | wc -l) ] ) ); then
+    echo -e "  ${GREEN}Test Eleven Passed${NC}"
+    SCORE=$((SCORE + 6))
+else
+    echo -e "  ${RED}Failed${NC}"
+fi
+rm temp
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
 # ============================================================
 # 9. User Prompt (5 pts)
@@ -254,12 +227,16 @@ ALT_PATTERN="$(date +%b).*$(whoami)"
 
 if echo "$PROMPT_OUT" | grep -Eq "$EXPECTED_PATTERN" || \
    echo "$PROMPT_OUT" | grep -Eq "$ALT_PATTERN"; then
-  print_result 1 "prompt displayed username and date" 5 "$EXPECTED_PATTERN OR $ALT_PATTERN" "$(echo "$PROMPT_OUT" | head -n 1)"
+   echo -e "  ${GREEN}prompt displayed username and date${NC}"
+   SCORE=$((SCORE + 5))
 else
-  print_result 0 "prompt missing username/date or not printed correctly" 0 "$EXPECTED_PATTERN OR $ALT_PATTERN" "$(echo "$PROMPT_OUT" | head -n 3)"
+   echo -e "  ${RED}prompt missing username/date or not printed correctly${NC}"
 fi
+echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
 
-# ============================================================
-# Final Score
-# ============================================================
-echo -e "\n${YELLOW}Final SCORE: ${SCORE}/${MAX_SCORE}${NC}\n"
+# Cleanup
+# rm -f input.txt result.txt
+# echo -e "Current SCORE: ${SCORE}/${MAX_SCORE}\n"
+
+
+exit 0
